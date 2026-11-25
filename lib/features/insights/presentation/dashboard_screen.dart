@@ -1,12 +1,14 @@
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:receipt_lens/features/budgets/presentation/budgets_screen.dart';
-import 'package:receipt_lens/features/budgets/presentation/budgets_section.dart';
 import 'package:receipt_lens/features/scan/presentation/receipt_providers.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../shared/glass.dart';
+import '../../budgets/presentation/budgets_screen.dart';
+import '../../budgets/presentation/budgets_section.dart';
 import '../domain/month_summary.dart';
 import 'insights_providers.dart';
 
@@ -21,10 +23,18 @@ class DashboardScreen extends ConsumerWidget {
       for (final c in ref.watch(categoriesProvider).value ?? const <Category>[])
         c.id: c,
     };
+    // Status bar plus the standard 56 px toolbar.
+    final top = MediaQuery.paddingOf(context).top + 56;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Dashboard'),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        foregroundColor: Colors.white,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         actions: [
           IconButton(
             tooltip: 'Budgets',
@@ -35,32 +45,53 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Stack(
         children: [
-          _MonthPicker(month: month),
-          const SizedBox(height: 12),
-          ...summary.when<List<Widget>>(
-            loading: () => const [
-              Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: RepaintBoundary(child: BrandHeaderBackground()),
+          ),
+          ListView(
+            padding: EdgeInsets.fromLTRB(16, top + 4, 16, 24),
+            children: [
+              _MonthPicker(month: month),
+              const SizedBox(height: 12),
+              ...summary.when<List<Widget>>(
+                loading: () => const [
+                  GlassCard(
+                    child: Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+                error: (e, _) => [GlassCard(child: Text('Could not load: $e'))],
+                data: (s) => s.isEmpty
+                    ? const [
+                        GlassCard(
+                          child: Text(
+                            'No receipts this month.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ]
+                    : [
+                        _TotalCard(summary: s),
+                        const SizedBox(height: 16),
+                        const BudgetsSection(),
+                        const SizedBox(height: 16),
+                        _CategorySection(summary: s, categories: categories),
+                        const SizedBox(height: 16),
+                        _DailySection(summary: s),
+                        const SizedBox(height: 16),
+                        _MerchantsSection(summary: s),
+                      ],
               ),
             ],
-            error: (e, _) => [Text('Could not load: $e')],
-            data: (s) => s.isEmpty
-                ? const [_EmptyMonth()]
-                : [
-                    _TotalCard(summary: s),
-                    const SizedBox(height: 16),
-                    const BudgetsSection(),
-                    const SizedBox(height: 16),
-                    _CategorySection(summary: s, categories: categories),
-                    const SizedBox(height: 16),
-                    _DailySection(summary: s),
-                    const SizedBox(height: 16),
-                    _MerchantsSection(summary: s),
-                  ],
           ),
         ],
       ),
@@ -84,6 +115,7 @@ class _MonthPicker extends ConsumerWidget {
       children: [
         IconButton(
           tooltip: 'Previous month',
+          color: Colors.white,
           icon: const Icon(Icons.chevron_left),
           onPressed: notifier.previous,
         ),
@@ -92,29 +124,18 @@ class _MonthPicker extends ConsumerWidget {
           child: Text(
             DateFormat('MMMM yyyy').format(month),
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium,
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(color: Colors.white),
           ),
         ),
         IconButton(
           tooltip: 'Next month',
+          color: Colors.white,
+          disabledColor: Colors.white38,
           icon: const Icon(Icons.chevron_right),
           onPressed: canGoForward ? notifier.next : null,
         ),
       ],
-    );
-  }
-}
-
-class _EmptyMonth extends StatelessWidget {
-  const _EmptyMonth();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 48),
-      child: Center(
-        child: Text('No receipts this month.', textAlign: TextAlign.center),
-      ),
     );
   }
 }
@@ -127,21 +148,37 @@ class _TotalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Spent', style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 4),
-            Text(summary.total.format(), style: theme.textTheme.headlineMedium),
-            const SizedBox(height: 4),
-            Text(
-              '${summary.count} ${summary.count == 1 ? 'receipt' : 'receipts'}',
+    final soft = Colors.white.withValues(alpha: 0.85);
+
+    return GlassCard(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Spent in ${DateFormat('MMMM').format(summary.month)}',
+            style: TextStyle(color: soft),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            summary.total.format(),
+            style: theme.textTheme.displaySmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Icon(Icons.receipt_long, size: 16, color: soft),
+              const SizedBox(width: 6),
+              Text(
+                '${summary.count} ${summary.count == 1 ? 'receipt' : 'receipts'}',
+                style: TextStyle(color: soft),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
