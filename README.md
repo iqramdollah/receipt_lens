@@ -1,6 +1,7 @@
-# flutter_application_1
+# Receipt Scanner
 
-A new Flutter project.
+
+Flutter receipt scanner and expense tracker: on-device OCR, optional local-LLM parsing, offline-first.
 
 ## Getting Started
 
