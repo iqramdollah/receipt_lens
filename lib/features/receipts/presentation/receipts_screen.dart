@@ -1,17 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:receipt_lens/features/scan/presentation/receipt_detail_screen.dart';
 import 'package:receipt_lens/features/scan/presentation/receipt_providers.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../core/money.dart';
+import '../../../shared/category_icons.dart';
+import '../domain/day_label.dart';
 import '../domain/export_scope.dart';
 import '../domain/receipt_csv.dart';
 import '../domain/receipt_filter.dart';
-
 import 'receipt_filter_providers.dart';
 
 class ReceiptsScreen extends ConsumerStatefulWidget {
@@ -19,6 +20,14 @@ class ReceiptsScreen extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<ReceiptsScreen> createState() => _ReceiptsScreenState();
+}
+
+/// A day heading in the list, with that day's total.
+class _Header {
+  const _Header(this.label, this.total);
+
+  final String label;
+  final Money total;
 }
 
 class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
@@ -117,12 +126,12 @@ class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Export to CSV',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                 ),
               ),
             ),
@@ -175,21 +184,58 @@ class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
     ReceiptSort.lowest => 'Lowest amount',
   };
 
+  /// Receipts with a day heading before each new day. Only date sorts are
+  /// grouped; sorting by amount would scatter the days.
+  static List<Object> _entries(
+    List<Receipt> visible,
+    ReceiptSort sort,
+    DateTime now,
+  ) {
+    if (sort != ReceiptSort.newest && sort != ReceiptSort.oldest) {
+      return visible;
+    }
+
+    final result = <Object>[];
+    String? label;
+    var total = 0;
+    var headerIndex = -1;
+
+    for (final r in visible) {
+      final l = dayLabel(r.purchasedAt, now);
+      if (l != label) {
+        label = l;
+        total = 0;
+        headerIndex = result.length;
+        result.add(_Header(l, const Money.zero()));
+      }
+      total += r.totalSen;
+      result[headerIndex] = _Header(l, Money(total));
+      result.add(r);
+    }
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final filter = ref.watch(receiptFilterProvider);
     final notifier = ref.read(receiptFilterProvider.notifier);
     final filtered = ref.watch(filteredReceiptsProvider);
     final categoryList =
         ref.watch(categoriesProvider).value ?? const <Category>[];
     final categories = {for (final c in categoryList) c.id: c};
-    final dateFormat = DateFormat('d MMM yyyy');
     final shortDate = DateFormat('d MMM');
     final canExport =
         (ref.watch(receiptsProvider).value ?? const <Receipt>[]).isNotEmpty;
 
     Widget chip(Widget child) =>
         Padding(padding: const EdgeInsets.only(right: 8), child: child);
+
+    final fieldBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(18),
+      borderSide: BorderSide(color: scheme.outlineVariant),
+    );
 
     final rangeLabel = (filter.from != null && filter.to != null)
         ? '${shortDate.format(filter.from!)} – ${shortDate.format(filter.to!)}'
@@ -219,7 +265,7 @@ class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: TextField(
               controller: _search,
               onChanged: notifier.setQuery,
@@ -233,13 +279,19 @@ class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
                         onPressed: _clearFilters,
                       )
                     : null,
-                border: const OutlineInputBorder(),
-                isDense: true,
+                filled: true,
+                fillColor: scheme.surfaceContainerLowest,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                border: fieldBorder,
+                enabledBorder: fieldBorder,
+                focusedBorder: fieldBorder.copyWith(
+                  borderSide: BorderSide(color: scheme.primary, width: 1.5),
+                ),
               ),
             ),
           ),
           SizedBox(
-            height: 52,
+            height: 56,
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -285,19 +337,10 @@ class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
                     .toList();
 
                 if (visible.isEmpty) {
-                  return Center(
-                    child: filter.isActive
-                        ? const Text(
-                            'No receipts match your filters.',
-                            textAlign: TextAlign.center,
-                          )
-                        : const Text(
-                            'No receipts yet.\nScan one to get started.',
-                            textAlign: TextAlign.center,
-                          ),
-                  );
+                  return _Empty(filtered: filter.isActive);
                 }
 
+                final entries = _entries(visible, filter.sort, DateTime.now());
                 final sum = visible.fold<Money>(
                   const Money.zero(),
                   (a, r) => a + Money(r.totalSen),
@@ -306,93 +349,57 @@ class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
                 return Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
                       child: Row(
                         children: [
                           Text(
                             '${visible.length} '
                             '${visible.length == 1 ? 'receipt' : 'receipts'}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
                           const Spacer(),
-                          Text(
-                            sum.format(),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
+                          Text(sum.format(), style: theme.textTheme.titleSmall),
                         ],
                       ),
                     ),
                     Expanded(
-                      child: ListView.separated(
-                        itemCount: visible.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        itemCount: entries.length,
                         itemBuilder: (context, i) {
-                          final r = visible[i];
-                          final category = categories[r.categoryId];
+                          final e = entries[i];
+                          if (e is _Header) return _DayHeader(header: e);
 
-                          return Dismissible(
-                            key: ValueKey(r.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .errorContainer,
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 24),
-                              child: const Icon(Icons.delete),
-                            ),
-                            onDismissed: (_) => _delete(r),
-                            child: ListTile(
-                              isThreeLine: r.needsReview,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      ReceiptDetailScreen(receiptId: r.id),
+                          final r = e as Receipt;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 5),
+                            child: Dismissible(
+                              key: ValueKey(r.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                decoration: BoxDecoration(
+                                  color: scheme.errorContainer,
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 24),
+                                child: Icon(
+                                  Icons.delete_outline,
+                                  color: scheme.onErrorContainer,
                                 ),
                               ),
-                              leading: CircleAvatar(
-                                backgroundColor: category == null
-                                    ? null
-                                    : Color(category.color),
-                                child: const Icon(
-                                  Icons.receipt_long,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              title: Text(r.merchant),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '${dateFormat.format(r.purchasedAt)} · '
-                                    '${category?.name ?? 'Uncategorized'}',
+                              onDismissed: (_) => _delete(r),
+                              child: _ReceiptTile(
+                                receipt: r,
+                                category: categories[r.categoryId],
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        ReceiptDetailScreen(receiptId: r.id),
                                   ),
-                                  if (r.needsReview)
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          Icons.warning_amber_rounded,
-                                          size: 14,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .error,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Needs review',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .error,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                              trailing: Text(
-                                Money(r.totalSen).format(),
-                                style: Theme.of(context).textTheme.titleSmall,
+                                ),
                               ),
                             ),
                           );
@@ -405,6 +412,192 @@ class _ReceiptsScreenState extends ConsumerState<ReceiptsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({required this.header});
+
+  final _Header header;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 18, 4, 4),
+      child: Row(
+        children: [
+          Text(
+            header.label,
+            style: theme.textTheme.titleSmall?.copyWith(color: muted),
+          ),
+          const Spacer(),
+          Text(
+            header.total.format(),
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReceiptTile extends StatelessWidget {
+  const _ReceiptTile({
+    required this.receipt,
+    required this.category,
+    required this.onTap,
+  });
+
+  final Receipt receipt;
+  final Category? category;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    final base = category == null ? scheme.outline : Color(category!.color);
+    // Dark category colours would nearly vanish on a dark card.
+    final tone = isDark ? Color.lerp(base, Colors.white, 0.35)! : base;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: base.withValues(alpha: isDark ? 0.22 : 0.14),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(categoryIcon(category?.name), color: tone),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      receipt.merchant,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      category?.name ?? 'Uncategorized',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (receipt.needsReview) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.tertiaryContainer,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              size: 12,
+                              color: scheme.onTertiaryContainer,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Needs review',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: scheme.onTertiaryContainer,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                Money(receipt.totalSen).format(),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Empty extends StatelessWidget {
+  const _Empty({required this.filtered});
+
+  final bool filtered;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: scheme.secondaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                filtered ? Icons.search_off : Icons.receipt_long_outlined,
+                size: 40,
+                color: scheme.onSecondaryContainer,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              filtered ? 'No receipts match' : 'No receipts yet',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              filtered
+                  ? 'Try a different search or clear the filters.'
+                  : 'Scan your first receipt from the Scan tab.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
