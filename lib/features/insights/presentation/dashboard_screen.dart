@@ -163,7 +163,7 @@ class _TotalCard extends StatelessWidget {
           Text(
             summary.total.format(),
             style: theme.textTheme.displaySmall?.copyWith(
-              color: Colors.white,
+              color: Brand.butter,
               fontWeight: FontWeight.w700,
             ),
           ),

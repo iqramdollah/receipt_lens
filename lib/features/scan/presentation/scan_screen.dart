@@ -129,7 +129,7 @@ class _Actions extends StatelessWidget {
       children: [
         FilledButton.icon(
           style: FilledButton.styleFrom(
-            backgroundColor: Colors.white,
+            backgroundColor: Brand.butter,
             foregroundColor: Brand.deep,
             minimumSize: const Size.fromHeight(56),
           ),

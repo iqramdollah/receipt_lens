@@ -4,9 +4,15 @@ import 'package:material_ui/material_ui.dart';
 
 /// Brand colours, shared with the app icon.
 abstract final class Brand {
-  static const deep = Color(0xFF0B5F59);
-  static const teal = Color(0xFF0F766E);
-  static const bright = Color(0xFF14B8A6);
+  /// The two colours of the identity.
+  static const deep = Color(0xFF013E37);
+  static const butter = Color(0xFFFFEFB3);
+
+  /// Supporting shades for gradients and glows.
+  static const forest = Color(0xFF0B5247);
+  static const moss = Color(0xFF2E8B73);
+
+  /// Used sparingly, like the scan beam in the icon.
   static const amber = Color(0xFFF59E0B);
 }
 
@@ -32,7 +38,7 @@ class BrandHeaderBackground extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Brand.deep, Brand.teal, surface],
+                  colors: [Brand.deep, Brand.forest, surface],
                   stops: const [0.0, 0.78, 1.0],
                 ),
               ),
@@ -45,14 +51,14 @@ class BrandHeaderBackground extends StatelessWidget {
             right: -60,
             width: 280,
             height: 280,
-            child: _Glow(Brand.amber.withValues(alpha: 0.40)),
+            child: _Glow(Brand.butter.withValues(alpha: 0.30)),
           ),
           Positioned(
             top: 130,
             left: -110,
             width: 300,
             height: 300,
-            child: _Glow(Brand.bright.withValues(alpha: 0.28)),
+            child: _Glow(Brand.moss.withValues(alpha: 0.35)),
           ),
         ],
       ),
